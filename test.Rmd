@@ -1,0 +1,90 @@
+---
+title: "Practical Machine Learning"
+author: "Waleed Hassan"
+date: "2014-09-21"
+output: html_document
+---
+
+```{r setup, echo=FALSE, message=FALSE}
+require(knitr)
+opts_chunk$set(echo=T, eval=T, message=F, warnings=F, cache=T, comment=NA)
+```
+
+
+## Overlook Data
+
+```{r loadData}
+library(caret)
+data = read.csv('pml-training.csv')[, -1]
+intrain <- createDataPartition(y= data$classe, p=0.7, list= F)
+training = data[intrain,]
+testing = data[-intrain,]
+### divide data into training and test sets
+```
+
+As we are going to predict the `classe` variable, let's have a look at its emprical distribution in the training data:
+
+```{r dis}
+table(training$classe);
+barplot(sort(table(training$classe), decreasing = T), 
+        col=rainbow(5), main='Fig1: Emprical distribution of Classe')
+```
+
+It's almost evenly distributed, except that the group `A` is much more than other groups. 
+
+
+
+## Preprocessing
+After have a look at the data, before build a model we should do some prepocess, which need us to look explore the data deeper.
+
+### Near Zore Variables
+At the beginning, explore whether there are some `near zero variables` in the predictors, namely predictors that have one unique value (i.e. are zero variance predictors) or predictors that are have both of the following characteristics: they have very few unique values relative to the number of samples and the ratio of the frequency of the most common value to the frequency of the second most common value is large.
+
+```{r}
+zeroVar = nearZeroVar(training)
+training = training[, -c(zeroVar)]
+testing = testing[, -c(zeroVar)]
+```
+
+Here, I simply use `nearZeroVar` function in the `caret` package, and remove the returned column. Then the training have `r ncol(training)` column left.
+
+### Missing values
+As metioned in the first step, alomst all the samples have missing values. 
+
+```{r miss}
+require(plyr)
+miss_var = as.vector(as.matrix(colwise(function(x) any(is.na(x)))(training)))
+train_data = training[, !miss_var]
+test_data = testing[, !miss_var]
+```
+
+After check out each predict, I find out there are `sum(miss_var)` predictors have missing values, which is hard to fill in. So I just remove all these `sum(miss_var)` variables, left `r ncol(train_data)` variables.
+
+
+## Modeling
+After have overlook and preprocess thes data, it's time to build a model.As there are many missing values in the dataset, I choose the Random Forest model, which is much more powful than simple trees. 
+
+```{r model}
+factor_var = sapply(train_data, class) == 'factor'
+train_data[, !factor_var] = colwise(as.numeric)(train_data[, !factor_var])
+test_data[, !factor_var] = colwise(as.numeric)(test_data[, !factor_var])
+
+tag = rep(c('train', 'test'), c(nrow(train_data), nrow(test_data)))
+colnames(test_data) = colnames(train_data)
+test_data$classe = 'A'
+all_data = rbind(train_data, test_data)
+set.seed(123)
+require(randomForest)
+model = randomForest(classe ~ ., data=all_data[tag == 'train', ])
+model
+```
+
+As we can see, the OOB(out of bag) estimate of error rate is `r model$err.rate[500, 1]`. This is also the expected out of sample error.
+
+
+## Predict
+At last, given the test data, make a prediction.
+```{r predict}
+pre = predict(model, newdata=all_data[tag == 'test', ])
+as.character(pre)
+```
